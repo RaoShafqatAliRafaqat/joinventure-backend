@@ -1,0 +1,174 @@
+const Joi = require('joi');
+const Project = require('../models/projects');
+const {BACKEND_SERVER_PATH} = require('../config/index');
+const ProjectDTO = require('../dto/project')
+const ProjectDetailsDTO = require('../dto/project-details');
+const MyProjectDTO = require('../dto/my-project');
+const Expenses = require('../models/expenses');
+
+
+const mongodbIdPattern = /^[0-91-fA-F]{24}$/;
+
+const projectController = {
+    async create(req, res, next){
+
+        //1. validate req body
+        const createProjectSchema = Joi.object({
+            projectName: Joi.string().required(),
+            projectDes:  Joi.string().required(),
+            projectOwner: Joi.string().regex(mongodbIdPattern).required()
+        });
+        const {error} = createProjectSchema.validate(req.body);
+        if(error){
+            return next(error);
+        }
+
+            const {projectName, projectDes, projectOwner} = req.body;
+
+        //2. add to db
+        let newProject;
+        try {
+            newProject = new Project({
+            projectName,
+            projectDes,
+            projectOwner
+            });
+
+            await newProject.save();
+
+        } catch (error) {
+            return next(error);
+        }
+        //3. return response
+        const projectDto = new ProjectDTO(newProject);
+        return res.status(201).json({project: projectDto});
+    },
+    async getAll(req, res, next){
+        try {
+            const projects = await Project.find({}).populate('projectOwner');
+
+            const projectsDto = [];
+            for(let i=0; i < projects.length; i++){
+               const dto = new ProjectDTO(projects[i]);
+               projectsDto.push(dto);
+            }
+
+            return res.status(200).json({projects: projectsDto});
+        } catch (error) {
+            return next(error);
+        }
+    },
+    async getAllMyProjects(req, res, next){
+        const getProjectByIdSchema = Joi.object({
+            id: Joi.string().regex(mongodbIdPattern).required()
+        });
+        const {error} = getProjectByIdSchema.validate(req.params);
+        if(error){
+            return next(error);
+        } 
+        // let projects;
+        const {id} = req.params;
+        // try {
+        //     const projects = await Project.find({projectOwner:id}).populate('projectOwner');
+
+        //     const projectsDto = [];
+        //     for(let i=0; i < projects.length; i++){
+        //        const dto = new MyProjectDTO(projects[i]);
+        //        projectsDto.push(dto);
+        //     }
+
+        //     return res.status(200).json({projects: projectsDto});
+
+
+
+
+            ///
+            let project;
+            try {
+                project = await Project.find({projectOwner: id});
+            } catch (error) {
+                return next(error);
+            }
+            let projectsDto = [];
+            for(let i = 0; i< project.length; i++){
+                const obj = new MyProjectDTO(project[i]);
+                projectsDto.push(obj);
+        } 
+        return res.status(200).json({projects: projectsDto})
+    },
+    async getById(req, res, next){
+        //1. validate id
+        //2. response send
+        const getByIdSchema = Joi.object({
+            id: Joi.string().regex(mongodbIdPattern).required()
+        });
+        const {error} = getByIdSchema.validate(req.params);
+        if(error){
+            return next(error);
+        } 
+        let project;
+        const {id} = req.params;
+        try {
+            project = await Project.findOne({_id:id}).populate('projectOwner');
+        } catch (error) {
+            return next(error);
+        }
+        const projectDetailsDto = new ProjectDetailsDTO(project);
+        
+        return res.status(200).json({project: projectDetailsDto})
+
+    },
+    async update(req, res, next){
+
+        const updateProjectSchema = Joi.object({
+            projectName: Joi.string().required(),
+            projectDes: Joi.string().required(),
+            projectOwner: Joi.string().regex(mongodbIdPattern).required(),
+            projectId: Joi.string().regex(mongodbIdPattern).required(),
+        });
+
+        const {error} = updateProjectSchema.validate(req.body);
+
+        const {projectName, projectDes, projectOwner, projectId} = req.body;
+
+        let project;
+        try {
+            project = await Project.findOne({_id:projectId});
+        } catch (error) {
+            return next(error);
+        }
+
+        await Project.updateOne({_id:projectId},{
+        projectName,
+        projectDes
+        });
+
+        return res.status(200).json({message:'project updated'});
+    },
+    async delete(req, res, next){
+        //1. validate
+        //2. delete project
+        //3. delete expenses on the project
+        const deleteProjectSchema = Joi.object({
+            id: Joi.string().regex(mongodbIdPattern).required()
+        });
+
+        const {error} = deleteProjectSchema.validate(req.params);
+
+        const {id} = req.params;
+
+        //delete project and expenses
+        try {
+            await Project.deleteOne({_id:id});
+
+            await Expenses.deleteMany({project: id});
+
+        } catch (error) {
+            return next(error);
+        }
+        return res.status(200).json({message:'project deleted!'});
+    }
+
+}
+
+module.exports = projectController;
